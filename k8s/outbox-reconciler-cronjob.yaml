@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agrilens-outbox-reconciler
+spec:
+  schedule: "*/1 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: reconciler
+              image: gcr.io/agrilens-prod/gateway:latest  # reuses the gateway image
+              command: ["python", "-m", "scripts.reconcile_outbox"]
+              envFrom:
+                - configMapRef:
+                    name: agrilens-config
+                - secretRef:
+                    name: agrilens-secrets
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "250m"
+                  memory: "256Mi"
+          restartPolicy: OnFailure

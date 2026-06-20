@@ -1,0 +1,33 @@
+# Lightweight, scales independently of image processing — a notification
+# backlog (FCM slow/down) should never apply backpressure to diagnosis
+# throughput, which is why this is a separate Deployment/Pub-Sub
+# subscription rather than code inside the worker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agrilens-notification-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agrilens-notification-service
+  template:
+    metadata:
+      labels:
+        app: agrilens-notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: gcr.io/agrilens-prod/notification-service:latest
+          envFrom:
+            - configMapRef:
+                name: agrilens-config
+            - secretRef:
+                name: agrilens-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

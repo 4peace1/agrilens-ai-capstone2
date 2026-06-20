@@ -1,0 +1,161 @@
+# Inference layer (Phase 2). Split into per-crop Deployments — matching
+# the "Cassava Model Pods" / "Cocoa Model Pods" split in the architecture
+# diagram — so a traffic burst for one crop (e.g. cassava during planting
+# season) scales independently and a model crash in one family can't
+# starve the other of CPU.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agrilens-inference-cassava
+  labels:
+    app: agrilens-inference
+    crop: cassava
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: agrilens-inference
+      crop: cassava
+  template:
+    metadata:
+      labels:
+        app: agrilens-inference
+        crop: cassava
+    spec:
+      containers:
+        - name: inference
+          image: gcr.io/agrilens-prod/inference:latest
+          env:
+            - name: CROP_FILTER
+              value: "cassava"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 8
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agrilens-inference-cocoa
+  labels:
+    app: agrilens-inference
+    crop: cocoa
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agrilens-inference
+      crop: cocoa
+  template:
+    metadata:
+      labels:
+        app: agrilens-inference
+        crop: cocoa
+    spec:
+      containers:
+        - name: inference
+          image: gcr.io/agrilens-prod/inference:latest
+          env:
+            - name: CROP_FILTER
+              value: "cocoa,maize"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 8
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-orchestrator
+  # The worker's INFERENCE_SERVICE_URL points at this single service name;
+  # the actual cassava-vs-cocoa split happens inside the request path via
+  # the /infer/{crop_type} route, which a Service-level Ingress/VirtualService
+  # (omitted here for brevity) directs to the matching Deployment by label.
+spec:
+  selector:
+    app: agrilens-inference
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agrilens-inference-cassava-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agrilens-inference-cassava
+  minReplicas: 4
+  maxReplicas: 25
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 6
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agrilens-inference-cocoa-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agrilens-inference-cocoa
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

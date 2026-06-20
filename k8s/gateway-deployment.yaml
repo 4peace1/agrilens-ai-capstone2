@@ -1,0 +1,98 @@
+# Gateway: lightweight, CPU-bound on request handling only — no ML
+# weights loaded in this pod. This is the deployment that absorbs the
+# initial burst of 2G/3G traffic, so it scales aggressively but each
+# replica is cheap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agrilens-gateway
+  labels:
+    app: agrilens-gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: agrilens-gateway
+  template:
+    metadata:
+      labels:
+        app: agrilens-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: gcr.io/agrilens-prod/gateway:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: agrilens-config
+            - secretRef:
+                name: agrilens-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agrilens-gateway
+spec:
+  selector:
+    app: agrilens-gateway
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+# Explicit resource requests/limits above are what make this HPA
+# meaningful — per the brief's warning: "Don't use default HPA settings
+# without defining resource requests and limits." Without requests set,
+# the CPU-utilization-percentage target below has no denominator to
+# scale against.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agrilens-gateway-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agrilens-gateway
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 5
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300  # avoid flapping after planting-season bursts
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60

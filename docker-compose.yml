@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: agrilens
+      POSTGRES_PASSWORD: agrilens
+      POSTGRES_DB: agrilens
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:emulators
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=agrilens-dev
+    ports:
+      - "8085:8085"
+
+  fake-gcs:
+    image: fsouza/fake-gcs-server:1.49
+    command: -scheme http -port 4443 -public-host fake-gcs:4443
+    ports:
+      - "4443:4443"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+      - pubsub-emulator
+      - fake-gcs
+    environment:
+      AGRILENS_DATABASE_URL: postgresql://agrilens:agrilens@postgres:5432/agrilens
+      AGRILENS_GCP_PROJECT_ID: agrilens-dev
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    depends_on:
+      - postgres
+      - pubsub-emulator
+      - fake-gcs
+      - inference
+    environment:
+      AGRILENS_DATABASE_URL: postgresql://agrilens:agrilens@postgres:5432/agrilens
+      AGRILENS_GCP_PROJECT_ID: agrilens-dev
+      AGRILENS_INFERENCE_SERVICE_URL: http://inference:8080
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+
+  inference:
+    build:
+      context: .
+      dockerfile: inference/model_server/Dockerfile
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

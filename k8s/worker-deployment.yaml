@@ -1,0 +1,77 @@
+# Image-processing worker: this is the pod most exposed to the OOM root
+# cause, so it gets a tighter memory ceiling paired with the in-process
+# flow-control cap (max 4 in-flight messages — see worker/image_processor.py)
+# rather than relying on Kubernetes limits alone to prevent kills.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agrilens-worker
+  labels:
+    app: agrilens-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: agrilens-worker
+  template:
+    metadata:
+      labels:
+        app: agrilens-worker
+    spec:
+      containers:
+        - name: worker
+          image: gcr.io/agrilens-prod/worker:latest
+          envFrom:
+            - configMapRef:
+                name: agrilens-config
+            - secretRef:
+                name: agrilens-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+---
+# Scaling a Pub/Sub consumer on CPU alone is a poor signal — a backlog can
+# build up while CPU stays low (e.g. waiting on GCS I/O). Instead this
+# scales on the Pub/Sub subscription's undelivered-message count via the
+# stackdriver custom-metrics adapter, which directly reflects "are we
+# keeping up with farmer uploads" — the actual thing we care about during
+# planting-season bursts.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agrilens-worker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agrilens-worker
+  minReplicas: 3
+  maxReplicas: 40
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: pubsub.googleapis.com|subscription|num_undelivered_messages
+          selector:
+            matchLabels:
+              resource.labels.subscription_id: image-processing-sub
+        target:
+          type: AverageValue
+          averageValue: "20"  # ~20 backlogged images per pod before scaling out
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 10
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60

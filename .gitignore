@@ -1,0 +1,46 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Model artifacts (produced by inference/quantize.py, not committed) ---
+models/*.tflite
+models/*.onnx
+*_savedmodel/
+checkpoints/
+data/calibration/
+
+# --- Docker / local emulator state ---
+.docker/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Terraform (if added later) ---
+*.tfstate
+*.tfstate.*
+.terraform/
