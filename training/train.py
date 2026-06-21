@@ -30,6 +30,7 @@ production.
 """
 import argparse
 import json
+import pathlib
 import time
 
 import torch
@@ -106,6 +107,8 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device={device} pretrained={args.pretrained}")
+
+    pathlib.Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
     train_loader, val_loader, class_names = build_dataloaders(
         args.data_dir, args.image_size, args.batch_size
