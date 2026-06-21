@@ -1,6 +1,6 @@
 # AgriLens AI — Decentralized Crop Diagnostics Pipeline
 
-[![CI](https://github.com/<org>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<org>/<repo>/actions/workflows/ci.yml)
+[![CI](https://github.com/4peace1/agrilens-ai-capstone2/actions/workflows/ci.yml/badge.svg)](https://github.com/4peace1/agrilens-ai-capstone2/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Capstone implementation for the AgriLens AI brief: an automated, low-latency
@@ -8,7 +8,6 @@ classification pipeline that replaces the 48-72 hour manual agronomist
 review with sub-2-second, offline-tolerant disease diagnosis for cassava,
 cocoa, and maize.
 
-> Replace `<org>/<repo>` in the badge URL above with your actual GitHub
 > path once pushed, or delete the badge line if you'd rather not show it
 > until the first CI run completes.
 
