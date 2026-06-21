@@ -20,8 +20,10 @@ Design choices that directly target the brief's constraints:
 """
 import base64
 import io
+import json
 import logging
 import os
+import pathlib
 import time
 from typing import Dict
 
@@ -50,14 +52,39 @@ MODEL_PATHS: Dict[str, str] = {
     "maize-v1-stable": "models/maize_v1_int8.tflite",
 }
 
-CLASS_LABELS: Dict[str, list[str]] = {
-    "cassava-v3-stable": ["healthy", "mosaic_disease", "brown_streak", "bacterial_blight"],
-    "cassava-v4-canary": ["healthy", "mosaic_disease", "brown_streak", "bacterial_blight"],
-    "cocoa-v2-stable": ["healthy", "black_pod_rot", "frosty_pod_rot", "swollen_shoot"],
-    "maize-v1-stable": ["healthy", "rust", "gray_leaf_spot", "blight"],
+# Fallback labels only — used if a model's .tflite file has no matching
+# `{path}.labels.json` sidecar (see training/dataset.py::save_labels and
+# inference/quantize.py). These defaults mirror the real public dataset
+# class sets documented in training/README.md (Kaggle cassava-leaf-
+# disease-classification, corn-or-maize-leaf-disease-dataset, and the
+# cacao-disease dataset) so a freshly-trained model's labels and these
+# defaults agree even before a labels.json sidecar exists.
+DEFAULT_CLASS_LABELS: Dict[str, list[str]] = {
+    "cassava-v3-stable": ["healthy", "cmd", "cbsd", "cbb", "cgm"],
+    "cassava-v4-canary": ["healthy", "cmd", "cbsd", "cbb", "cgm"],
+    "cocoa-v2-stable": ["healthy", "black_pod_rot", "pod_borer"],
+    "maize-v1-stable": ["healthy", "common_rust", "gray_leaf_spot", "blight"],
 }
 
 _interpreters: Dict[str, Interpreter] = {}
+CLASS_LABELS: Dict[str, list[str]] = {}
+
+
+def _load_labels(version: str, model_path: str) -> list[str]:
+    """Prefer the labels.json sidecar written by training/train.py (via
+    inference/quantize.py) — it reflects exactly what this specific
+    model artifact was trained on. Only fall back to the hardcoded
+    defaults above if no sidecar is present (e.g. local dev without a
+    real trained model)."""
+    sidecar = pathlib.Path(f"{model_path}.labels.json")
+    if sidecar.exists():
+        try:
+            labels = json.loads(sidecar.read_text())
+            logger.info("loaded labels for %s from %s: %s", version, sidecar, labels)
+            return labels
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("failed to read labels sidecar %s (%s) — using defaults", sidecar, exc)
+    return DEFAULT_CLASS_LABELS.get(version, [])
 
 
 def _crop_filter() -> set[str] | None:
@@ -82,6 +109,7 @@ def load_models() -> None:
             interpreter = Interpreter(model_path=path, num_threads=2)
             interpreter.allocate_tensors()
             _interpreters[version] = interpreter
+            CLASS_LABELS[version] = _load_labels(version, path)
             logger.info("loaded model %s from %s", version, path)
         except (FileNotFoundError, ValueError) as exc:
             # In this reference implementation the .tflite binaries aren't

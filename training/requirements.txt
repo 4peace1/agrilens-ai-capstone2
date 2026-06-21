@@ -1,0 +1,5 @@
+torch>=2.4
+torchvision>=0.19
+scikit-learn>=1.5
+Pillow>=10.3
+tqdm>=4.66

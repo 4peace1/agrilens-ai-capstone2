@@ -1,6 +1,6 @@
 # AgriLens AI — Decentralized Crop Diagnostics Pipeline
 
-[![CI](https://github.com/4peace1/agrilens-ai-capstone2/actions/workflows/ci.yml/badge.svg)](https://github.com/4peace1/agrilens-ai-capstone2/actions/workflows/ci.yml)
+[![CI](https://github.com/<org>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<org>/<repo>/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Capstone implementation for the AgriLens AI brief: an automated, low-latency
@@ -8,6 +8,7 @@ classification pipeline that replaces the 48-72 hour manual agronomist
 review with sub-2-second, offline-tolerant disease diagnosis for cassava,
 cocoa, and maize.
 
+> Replace `<org>/<repo>` in the badge URL above with your actual GitHub
 > path once pushed, or delete the badge line if you'd rather not show it
 > until the first CI run completes.
 
@@ -71,6 +72,13 @@ inference/              Inference layer (Phase 2)
     app.py               TFLite-serving FastAPI app, per-crop model loading
     ab_router.py          Deterministic A/B / canary routing
 
+training/                Model training pipeline (feeds Phase 2)
+  synthetic_data.py       Procedural smoke-test data, zero downloads
+  dataset.py               ImageFolder loading, augmentation, class weighting
+  train.py                  ResNet18 transfer-learning training loop
+  evaluate.py                Held-out test set evaluation vs. the F1 floor
+  README.md                  Verified public dataset links + workflow
+
 notification/           Notification Service — Pub/Sub → FCM push
 scripts/
   reconcile_outbox.py    Outbox reconciler (run as a CronJob)
@@ -110,10 +118,22 @@ LICENSE                    MIT
   GIST index, not naive floats (`app/db.py`).
 
 ### Phase 2 — Optimized Inference Layer with TFLite & Triton
+- `training/` is the model-training pipeline that *feeds* this phase —
+  see `training/README.md` for the three verified public datasets
+  (Kaggle cassava-leaf-disease-classification, corn-or-maize-leaf-
+  disease-dataset, and a cacao disease dataset) plus a synthetic-data
+  mode for smoke-testing the whole pipeline without any downloads.
+  `training/train.py` does ResNet18 transfer learning with class-
+  weighted loss (the real cassava dataset is ~62% one class) and tracks
+  macro-F1 every epoch against the brief's 85% floor.
 - `inference/quantize.py` documents the PyTorch → ONNX → TFLite **int8
   post-training quantization** pipeline (the brief's "Quantize your
   PyTorch models to TFLite" guidance), with representative-dataset
-  calibration so F1 doesn't silently degrade.
+  calibration so F1 doesn't silently degrade. It also carries the
+  trained model's `labels.json` sidecar through to the served artifact,
+  so `model_server/app.py` always serves the exact class list a model
+  was actually trained on instead of a hand-maintained list that can
+  drift out of sync.
 - `inference/model_server/app.py` loads TFLite interpreters **once at
   startup**, runs CPU-only inference, and is deployed as its **own GKE
   Deployment** (`k8s/inference-deployment.yaml`) — separate from the
@@ -191,10 +211,14 @@ end-to-end integration tests would run against the emulator stack in
 ## Producing real model artifacts
 
 The `.tflite` files referenced in `inference/model_server/app.py` are
-**not bundled** — they're produced from real training checkpoints and a
-representative field-image calibration set:
+**not bundled** — see `training/README.md` for the full workflow
+(verified public datasets, training, evaluation against the F1 floor)
+and `inference/quantize.py` for the conversion step:
 
 ```bash
+python -m training.train --crop cassava --data-dir data/cassava \
+    --output checkpoints/cassava_resnet18.pt --epochs 15
+
 python -m inference.quantize \
     --checkpoint checkpoints/cassava_resnet18.pt \
     --calibration-dir data/calibration/cassava \
@@ -204,6 +228,10 @@ python -m inference.quantize \
 The inference service logs a warning and continues booting if an
 artifact is missing, so the rest of the stack remains runnable for
 local development and code review without requiring trained weights.
+The training pipeline (synthetic-data mode) was run end-to-end while
+building this repo to confirm the data → train → label-sidecar →
+quantize → serve chain is correctly wired; see `training/README.md` for
+that run's output.
 
 ## Getting this onto GitHub
 
@@ -241,6 +269,12 @@ lint/test workflow, and guidance on adding a new crop or model variant.
 - The React Native mobile app itself (brief only required the backend
   pipeline; the gateway's signed-URL contract is what the app would
   call).
+- Actually downloading and training on the full real datasets — the
+  `training/` pipeline is real and runnable, and was smoke-tested
+  end-to-end on synthetic data, but the multi-GB real downloads + full
+  15-epoch training runs weren't executed as part of building this repo.
+  See `training/README.md` for the exact commands to do that on your
+  own machine.
 - A production secret-management integration (Secret Manager + External
   Secrets Operator) — `k8s/configmap-secrets.yaml` documents the shape
   but uses placeholder values.

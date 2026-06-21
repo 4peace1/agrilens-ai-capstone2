@@ -102,6 +102,22 @@ def main() -> None:
     export_to_onnx(args.checkpoint, onnx_path, args.input_size)
     convert_to_tflite_int8(onnx_path, args.calibration_dir, args.output, args.input_size)
 
+    # Carry the labels sidecar produced by training/train.py through to
+    # the served artifact, so inference/model_server/app.py always loads
+    # the exact class list this model was trained on rather than relying
+    # on a hand-maintained list that can silently drift out of sync.
+    labels_src = pathlib.Path(f"{args.checkpoint}.labels.json")
+    if labels_src.exists():
+        labels_dst = pathlib.Path(f"{args.output}.labels.json")
+        labels_dst.write_text(labels_src.read_text())
+        print(f"copied labels sidecar to {labels_dst}")
+    else:
+        print(
+            f"warning: no labels sidecar found at {labels_src} — "
+            "model_server/app.py will fall back to its hardcoded "
+            "CLASS_LABELS for this model version, which may not match."
+        )
+
 
 if __name__ == "__main__":
     main()
